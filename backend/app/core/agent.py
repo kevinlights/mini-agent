@@ -9,6 +9,7 @@ import json
 
 from app.core.model import BaseModel as LLMModel
 from app.tools.tool import ToolRegistry
+from app.skills.skill import SkillRegistry
 
 
 @dataclass
@@ -50,6 +51,7 @@ class Agent:
         config: Optional[AgentConfig] = None,
         agent_id: Optional[str] = None,
         tool_registry: Optional[ToolRegistry] = None,
+        skill_registry: Optional[SkillRegistry] = None,
     ):
         """Initialize the agent.
         初始化 Agent。
@@ -63,6 +65,8 @@ class Agent:
                 Agent 的唯一标识符（可选）。
             tool_registry: Tool registry for tool calling (optional).
                 工具调用注册表（可选）。
+            skill_registry: Skill registry for skill access (optional).
+                技能注册表（可选）。
         """
         self.agent_id = agent_id or str(uuid.uuid4())
         self.model = model
@@ -70,6 +74,7 @@ class Agent:
         self.history: List[Message] = []
         self.is_active = True
         self.tool_registry = tool_registry or ToolRegistry()
+        self.skill_registry = skill_registry or SkillRegistry()
 
         # Pass debug flag to model if it supports it
         if hasattr(self.model, "debug"):
@@ -163,7 +168,7 @@ class Agent:
             # Build the prompt from context
             prompt = self._build_prompt(context_messages)
             if self.config.debug:
-                print(f"[DEBUG] Prompt: {prompt[:200]}...")
+                print(f"[DEBUG] Prompt: {prompt[:6000]}...")
 
             # Generate response using the model
             response = await self.model.generate(
@@ -224,6 +229,31 @@ class Agent:
                     if self.config.debug:
                         print(f"[DEBUG] No tool call detected in response")
 
+            # Check if response contains skill call
+            skill_call = self._parse_skill_call(response)
+            if skill_call:
+                if self.config.debug:
+                    print(f"[DEBUG] Parsed skill call: {skill_call}")
+
+                result = await self._handle_skill_call(skill_call)
+                if self.config.debug:
+                    print(f"[DEBUG] Skill execution result: {result[:200]}...")
+
+                # Add skill call and result to history
+                self.add_message(
+                    "assistant",
+                    f"Used skill: {skill_call.get('name', 'unknown')}",
+                    metadata={"skill_call": skill_call},
+                )
+                self.add_message(
+                    "tool",
+                    result,
+                    metadata={"skill_name": skill_call.get("name")},
+                )
+
+                # Continue the loop for next reasoning step
+                continue
+
             # No tool call - this is the final response
             consecutive_errors = 0
             self.add_message("assistant", response)
@@ -258,6 +288,57 @@ class Agent:
                 return None
 
         return None
+
+    def _parse_skill_call(self, response: str) -> Optional[Dict[str, Any]]:
+        """Parse skill call from model response.
+        从模型响应中解析技能调用。
+
+        Args:
+            response: Model response text.
+                模型响应文本。
+
+        Returns:
+            Skill call dict or None if no skill call found.
+            技能调用字典，如果未找到则返回 None。
+        """
+        prefix = "SKILL_CALL:"
+        stripped = response.strip()
+
+        if stripped.startswith(prefix):
+            try:
+                skill_data = json.loads(stripped[len(prefix):])
+                return skill_data
+            except json.JSONDecodeError:
+                return None
+
+        return None
+
+    async def _handle_skill_call(self, skill_call: Dict[str, Any]) -> str:
+        """Handle a skill call from the model.
+        处理来自模型的技能调用。
+
+        Args:
+            skill_call: Skill call data.
+                技能调用数据。
+
+        Returns:
+            Skill execution result.
+                技能执行结果。
+        """
+        skill_name = skill_call.get("name")
+
+        if not skill_name:
+            return "Invalid skill call: missing skill name."
+
+        skill = self.skill_registry.get_skill(skill_name)
+        if not skill:
+            return f"Skill '{skill_name}' not found."
+
+        try:
+            result = await skill.execute()
+            return result
+        except Exception as e:
+            return f"Error executing skill '{skill_name}': {str(e)}"
 
     def _check_duplicate_tool_call(
         self, tool_call: Dict[str, Any], recent_calls: List[Dict[str, Any]]
@@ -374,6 +455,16 @@ class Agent:
                     + "\n".join(param_desc)
                 )
 
+        # Add skills with progressive disclosure
+        if self.skill_registry.list_skills():
+            skill_names = [s["name"] for s in self.skill_registry.list_skills()]
+            skill_context = self.skill_registry.get_progressive_context(skill_names)
+            prompt_parts.append(skill_context)
+            prompt_parts.append(
+                "\nTo use a skill, respond with: "
+                f'SKILL_CALL:{{"name": "skill_name"}}'
+            )
+
         # Include full conversation history (excluding system prompt)
         for msg in context_messages:
             if msg["role"] != "system":
@@ -428,6 +519,7 @@ if __name__ == "__main__":
     import asyncio
     from app.core.model import LMStudioModel
     from app.tools.builtins.file_tool import FileTool
+    from app.skills.skill import SkillRegistry
 
     model = LMStudioModel(
         base_url="http://127.0.0.1:1234", model_name="qwen/qwen3-4b-2507"
@@ -435,6 +527,7 @@ if __name__ == "__main__":
 
     registry = ToolRegistry()
     registry.register(FileTool())
+    skill_registry = SkillRegistry.load_from_markdown("app/skills")
 
     config = AgentConfig(
         name="test_agent",
@@ -443,10 +536,11 @@ if __name__ == "__main__":
         debug=True,
     )
 
-    agent = Agent(model=model, tool_registry=registry, config=config)
+    agent = Agent(model=model, tool_registry=registry, config=config, skill_registry=skill_registry)
     agent.activate()
     print(agent.get_status())
-    response = asyncio.run(agent.respond("List the files in the /tmp directory"))
+    # response = asyncio.run(agent.respond("List the files in the /tmp directory"))
+    response = asyncio.run(agent.respond("get the weather in New York"))
     print(response)
     agent.deactivate()
     print(agent.get_status())
