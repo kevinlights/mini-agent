@@ -154,7 +154,7 @@ class LMStudioModel(BaseModel):
             messages.append({"role": "system", "content": system_prompt})
         messages.append({"role": "user", "content": prompt})
 
-        params = {"messages": messages, "temperature": temperature}
+        params = {"messages": messages, "temperature": temperature, "model": self.model_name}
         if max_tokens:
             params["max_tokens"] = max_tokens
 
