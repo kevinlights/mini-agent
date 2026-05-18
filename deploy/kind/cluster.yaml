@@ -1,0 +1,40 @@
+# Kind cluster configuration for mini-agent
+# mini-agent 的 Kind 集群配置
+
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+
+# Cluster name
+# 集群名称
+name: mini-agent
+
+
+# Node configuration
+# 节点配置
+nodes:
+  # Control plane node
+  # 控制平面节点
+  - role: control-plane
+    image: docker.m.daocloud.io/kindest/node:v1.35.0
+    # Port mappings for services
+    # 服务端口映射
+    extraPortMappings:
+      # Frontend service
+      # 前端服务
+      - containerPort: 80
+        hostPort: 8080
+        protocol: TCP
+        listenAddress: "0.0.0.0"
+      # Backend service
+      # 后端服务
+      - containerPort: 8000
+        hostPort: 8000
+        protocol: TCP
+        listenAddress: "0.0.0.0"
+
+# Containerd configuration for private registries
+# 私有注册表的 containerd 配置
+containerdConfigPatches:
+  - |-
+    [plugins."io.containerd.grpc.v1.cri".registry]
+      config_path = "/etc/containerd/certs.d"

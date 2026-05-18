@@ -1,7 +1,7 @@
 # Mini-Agent Makefile
 # Mini-Agent 项目的 Makefile
 
-.PHONY: help install dev dev-frontend test lint clean build build-frontend run run-frontend stop stop-frontend stop-all
+.PHONY: help install dev dev-frontend test lint clean build build-frontend run run-frontend stop stop-frontend stop-all kind-create kind-delete kind-load kind-deploy kind-undeploy
 
 # Default target
 # 默认目标
@@ -53,6 +53,21 @@ help:
 	@echo ""
 	@echo "  make stop-all   - Stop all Docker containers"
 	@echo "  make stop-all   - 停止所有 Docker 容器"
+	@echo ""
+	@echo "  make kind-create - Create Kind cluster"
+	@echo "  make kind-create - 创建 Kind 集群"
+	@echo ""
+	@echo "  make kind-delete - Delete Kind cluster"
+	@echo "  make kind-delete - 删除 Kind 集群"
+	@echo ""
+	@echo "  make kind-load  - Load images to Kind cluster"
+	@echo "  make kind-load  - 加载镜像到 Kind 集群"
+	@echo ""
+	@echo "  make kind-deploy - Deploy to Kind cluster"
+	@echo "  make kind-deploy - 部署到 Kind 集群"
+	@echo ""
+	@echo "  make kind-undeploy - Undeploy from Kind cluster"
+	@echo "  make kind-undeploy - 从 Kind 集群取消部署"
 
 
 # Install dependencies
@@ -190,3 +205,54 @@ stop-frontend:
 stop-all: stop-frontend stop
 	@echo "All Docker containers stopped."
 	@echo "所有 Docker 容器已停止。"
+
+
+# Create Kind cluster
+# 创建 Kind 集群
+kind-create:
+	@echo "Creating Kind cluster..."
+	@echo "正在创建 Kind 集群..."
+	kind create cluster --config deploy/kind/cluster.yaml
+	@echo "Kind cluster created."
+	@echo "Kind 集群已创建。"
+
+
+# Delete Kind cluster
+# 删除 Kind 集群
+kind-delete:
+	@echo "Deleting Kind cluster..."
+	@echo "正在删除 Kind 集群..."
+	kind delete cluster --name mini-agent
+	@echo "Kind cluster deleted."
+	@echo "Kind 集群已删除。"
+
+
+# Load images to Kind cluster
+# 加载镜像到 Kind 集群
+kind-load: build build-frontend
+	@echo "Loading images to Kind cluster..."
+	@echo "正在加载镜像到 Kind 集群..."
+	kind load docker-image mini-agent-backend:latest --name mini-agent
+	kind load docker-image mini-agent-frontend:latest --name mini-agent
+	@echo "Images loaded."
+	@echo "镜像已加载。"
+
+
+# Deploy to Kind cluster
+# 部署到 Kind 集群
+kind-deploy:
+	@echo "Deploying to Kind cluster..."
+	@echo "正在部署到 Kind 集群..."
+	helm install mini-agent deploy/helm --namespace mini-agent --create-namespace
+	@echo "Deployment complete."
+	@echo "部署完成。"
+
+
+# Undeploy from Kind cluster
+# 从 Kind 集群取消部署
+kind-undeploy:
+	@echo "Undeploying from Kind cluster..."
+	@echo "正在从 Kind 集群取消部署..."
+	helm uninstall mini-agent --namespace mini-agent
+	@echo "Undeployment complete."
+	@echo "取消部署完成。"
