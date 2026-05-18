@@ -5,6 +5,7 @@ from abc import ABC, abstractmethod
 from typing import Dict, Any, Optional
 import httpx
 from urllib.parse import urljoin
+from app.log import logger
 
 
 class BaseModel(ABC):
@@ -162,18 +163,18 @@ class LMStudioModel(BaseModel):
             params["max_tokens"] = max_tokens
 
         if self.debug:
-            print(f"\n[MODEL DEBUG] generate() called:")
-            print(f"  - model: {self.model_name}")
-            print(f"  - temperature: {temperature}")
-            print(f"  - max_tokens: {max_tokens}")
-            print(f"  - messages count: {len(messages)}")
+            logger.info(f"\n[MODEL DEBUG] generate() called:")
+            logger.info(f"  - model: {self.model_name}")
+            logger.info(f"  - temperature: {temperature}")
+            logger.info(f"  - max_tokens: {max_tokens}")
+            logger.info(f"  - messages count: {len(messages)}")
             for i, msg in enumerate(messages):
                 role = msg.get("role", "unknown")
                 content_preview = str(msg.get("content", ""))[:100]
-                print(f"  - message[{i}]: role={role}, content={content_preview}...")
-            print(f"  - tools: {params.get('tools', 'NOT SET')}")
-            print(f"  - tool_choice: {params.get('tool_choice', 'NOT SET')}")
-            print(f"  - full params keys: {list(params.keys())}")
+                logger.info(f"  - message[{i}]: role={role}, content={content_preview}...")
+            logger.info(f"  - tools: {params.get('tools', 'NOT SET')}")
+            logger.info(f"  - tool_choice: {params.get('tool_choice', 'NOT SET')}")
+            logger.info(f"  - full params keys: {list(params.keys())}")
 
         try:
             result = await self._make_request("/v1/chat/completions", json_data=params)
@@ -217,6 +218,6 @@ if __name__ == "__main__":
         base_url="http://127.0.0.1:1234", model_name="qwen/qwen3-1.7b"
     )
     health = asyncio.run(model.check_health())
-    print(health)
+    logger.info(health)
     response = asyncio.run(model.generate("你好"))
-    print(response)
+    logger.info(response)

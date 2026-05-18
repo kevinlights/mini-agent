@@ -12,6 +12,7 @@ from app.tools.tool import ToolRegistry
 from app.skills.skill import SkillRegistry
 from app.core.memory import MemorySystem
 from app.core.context import ContextManager, ContextConfig
+from app.log import logger
 
 
 @dataclass
@@ -164,7 +165,7 @@ class Agent:
         # Before starting task, load relevant memories
         memory_context = self.memory_system.get_memory_context(user_input)
         if self.config.debug and "No relevant memories found" not in memory_context:
-            print(f"[DEBUG] Loaded memory context: {memory_context[:200]}...")
+            logger.debug("Loaded memory context: %s...", memory_context[:200])
 
         # ReAct loop: Reason -> Act -> Observe -> Reason...
         tool_call_count = 0
@@ -176,7 +177,7 @@ class Agent:
 
         while tool_call_count < max_tool_calls:
             if self.config.debug:
-                print(f"\n[DEBUG] ReAct loop iteration {tool_call_count + 1}/{max_tool_calls}")
+                logger.debug("ReAct loop iteration %d/%d", tool_call_count + 1, max_tool_calls)
 
             # Get context for the model
             context_messages = self.get_context_messages()
@@ -189,7 +190,7 @@ class Agent:
                 prompt = f"{memory_context}\n\n{prompt}"
 
             if self.config.debug:
-                print(f"[DEBUG] Prompt: {prompt[:6000]}...")
+                logger.debug("Prompt: %s...", prompt[:6000])
 
             # Generate response using the model
             response = await self.model.generate(
@@ -199,20 +200,20 @@ class Agent:
                 max_tokens=self.config.max_tokens,
             )
             if self.config.debug:
-                print(f"[DEBUG] Model response: {response[:200]}...")
+                logger.debug("Model response: %s...", response[:200])
 
             # Check if response contains tool call
             if self.config.enable_tools:
                 tool_call = self._parse_tool_call(response)
                 if tool_call:
                     if self.config.debug:
-                        print(f"[DEBUG] Parsed tool call: {tool_call}")
+                        logger.debug("Parsed tool call: %s", tool_call)
 
                     # Check for duplicate tool call
                     is_duplicate, dup_msg = self._check_duplicate_tool_call(tool_call, recent_tool_calls)
                     if is_duplicate:
                         if self.config.debug:
-                            print(f"[DEBUG] Duplicate tool call detected: {dup_msg}")
+                            logger.debug("Duplicate tool call detected: %s", dup_msg)
                         result = dup_msg
                         is_error = True
                         # Add duplicate warning to history
@@ -232,13 +233,13 @@ class Agent:
                         recent_tool_calls.append(tool_call)
 
                     if self.config.debug:
-                        print(f"[DEBUG] Tool execution result: {result[:200]}...")
+                        logger.debug("Tool execution result: %s...", result[:200])
 
                     if is_error:
                         consecutive_errors += 1
                         if consecutive_errors >= max_consecutive_errors:
                             if self.config.debug:
-                                print(f"[DEBUG] Max consecutive errors ({max_consecutive_errors}) reached")
+                                logger.debug("Max consecutive errors (%d) reached", max_consecutive_errors)
                             return f"Tool execution failed after {max_consecutive_errors} attempts: {result}"
                         # Error feedback - don't increment tool_call_count, let model retry
                         continue
@@ -248,17 +249,17 @@ class Agent:
                         continue  # Continue the loop for next reasoning step
                 else:
                     if self.config.debug:
-                        print(f"[DEBUG] No tool call detected in response")
+                        logger.debug("No tool call detected in response")
 
             # Check if response contains skill call
             skill_call = self._parse_skill_call(response)
             if skill_call:
                 if self.config.debug:
-                    print(f"[DEBUG] Parsed skill call: {skill_call}")
+                    logger.debug("Parsed skill call: %s", skill_call)
 
                 result = await self._handle_skill_call(skill_call)
                 if self.config.debug:
-                    print(f"[DEBUG] Skill execution result: {result[:200]}...")
+                    logger.debug("Skill execution result: %s...", result[:200])
 
                 # Add skill call and result to history
                 self.add_message(
@@ -286,7 +287,7 @@ class Agent:
 
         # Max tool calls reached
         if self.config.debug:
-            print(f"[DEBUG] Max tool calls ({max_tool_calls}) reached")
+            logger.debug("Max tool calls (%d) reached", max_tool_calls)
         
         # Even if max calls reached, still save the interaction
         await self._save_task_memory(user_input, f"Maximum tool calls reached. Last response: {response}")
@@ -337,7 +338,7 @@ class Agent:
         )
 
         if self.config.debug:
-            print(f"[DEBUG] Saved task to memory: {task_type}, importance: {importance}")
+            logger.debug("Saved task to memory: %s, importance: %d", task_type, importance)
 
     def _contains_complex_operations(self, text: str) -> bool:
         """Check if text contains complex operations.
@@ -667,9 +668,9 @@ if __name__ == "__main__":
 
     agent = Agent(model=model, tool_registry=registry, config=config, skill_registry=skill_registry)
     agent.activate()
-    print(agent.get_status())
+    logger.info(agent.get_status())
     # response = asyncio.run(agent.respond("List the files in the /tmp directory"))
     response = asyncio.run(agent.respond("get the weather in New York"))
-    print(response)
+    logger.info(response)
     agent.deactivate()
-    print(agent.get_status())
+    logger.info(agent.get_status())
