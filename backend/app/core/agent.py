@@ -10,6 +10,7 @@ import json
 from app.core.model import BaseModel as LLMModel
 from app.tools.tool import ToolRegistry
 from app.skills.skill import SkillRegistry
+from app.core.memory import MemorySystem
 
 
 @dataclass
@@ -52,6 +53,7 @@ class Agent:
         agent_id: Optional[str] = None,
         tool_registry: Optional[ToolRegistry] = None,
         skill_registry: Optional[SkillRegistry] = None,
+        memory_system: Optional[MemorySystem] = None,
     ):
         """Initialize the agent.
         初始化 Agent。
@@ -67,6 +69,8 @@ class Agent:
                 工具调用注册表（可选）。
             skill_registry: Skill registry for skill access (optional).
                 技能注册表（可选）。
+            memory_system: Memory system for context (optional).
+                记忆系统（可选）。
         """
         self.agent_id = agent_id or str(uuid.uuid4())
         self.model = model
@@ -75,6 +79,7 @@ class Agent:
         self.is_active = True
         self.tool_registry = tool_registry or ToolRegistry()
         self.skill_registry = skill_registry or SkillRegistry()
+        self.memory_system = memory_system or MemorySystem()
 
         # Pass debug flag to model if it supports it
         if hasattr(self.model, "debug"):
@@ -150,6 +155,11 @@ class Agent:
         # Add user message to history
         self.add_message("user", user_input)
 
+        # Before starting task, load relevant memories
+        memory_context = self.memory_system.get_memory_context(user_input)
+        if self.config.debug and "No relevant memories found" not in memory_context:
+            print(f"[DEBUG] Loaded memory context: {memory_context[:200]}...")
+
         # ReAct loop: Reason -> Act -> Observe -> Reason...
         tool_call_count = 0
         max_tool_calls = self.config.max_tool_calls
@@ -167,6 +177,11 @@ class Agent:
 
             # Build the prompt from context
             prompt = self._build_prompt(context_messages)
+            
+            # Add memory context if available
+            if memory_context and "No relevant memories found" not in memory_context:
+                prompt = f"{memory_context}\n\n{prompt}"
+
             if self.config.debug:
                 print(f"[DEBUG] Prompt: {prompt[:6000]}...")
 
@@ -257,12 +272,117 @@ class Agent:
             # No tool call - this is the final response
             consecutive_errors = 0
             self.add_message("assistant", response)
+            
+            # After completing task, summarize and save to memory
+            await self._save_task_memory(user_input, response)
+            
             return response
 
         # Max tool calls reached
         if self.config.debug:
             print(f"[DEBUG] Max tool calls ({max_tool_calls}) reached")
+        
+        # Even if max calls reached, still save the interaction
+        await self._save_task_memory(user_input, f"Maximum tool calls reached. Last response: {response}")
+        
         return "Maximum tool calls reached. Please refine your request."
+
+    async def _save_task_memory(self, user_input: str, response: str):
+        """Save the completed task to memory.
+        将完成的任务保存到记忆。
+
+        Args:
+            user_input: The original user input.
+                原始用户输入。
+            response: The agent's final response.
+                代理的最终响应。
+        """
+        # Determine task type based on keywords in input
+        task_type = "general"
+        input_lower = user_input.lower()
+        if any(keyword in input_lower for keyword in ["code", "program", "develop", "implement"]):
+            task_type = "coding"
+        elif any(keyword in input_lower for keyword in ["debug", "fix", "error", "bug"]):
+            task_type = "debugging"
+        elif any(keyword in input_lower for keyword in ["file", "read", "write", "list"]):
+            task_type = "file_operation"
+        elif any(keyword in input_lower for keyword in ["weather", "forecast"]):
+            task_type = "information"
+
+        # Calculate importance based on complexity and length
+        importance = 5  # Default
+        if len(response) > 500:  # Long response = more complex
+            importance = min(8, importance + 2)
+        if self._contains_complex_operations(response):
+            importance = min(10, importance + 2)
+
+        # Extract keywords from input and response
+        keywords = self._extract_keywords(f"{user_input} {response}")
+
+        # Summarize the interaction
+        summary = f"Q: {user_input[:100]}... A: {response[:200]}..."
+
+        # Save to memory system
+        self.memory_system.summarize_and_save(
+            task_type=task_type,
+            importance=importance,
+            summary=summary,
+            keywords=keywords
+        )
+
+        if self.config.debug:
+            print(f"[DEBUG] Saved task to memory: {task_type}, importance: {importance}")
+
+    def _contains_complex_operations(self, text: str) -> bool:
+        """Check if text contains complex operations.
+        检查文本是否包含复杂操作。
+
+        Args:
+            text: Text to check.
+                要检查的文本。
+
+        Returns:
+            True if contains complex operations, False otherwise.
+            如果包含复杂操作则为 True，否则为 False。
+        """
+        complex_indicators = [
+            "multiple steps", "several", "complex", "advanced", "sophisticated",
+            "tool_call", "skill_call", "execute", "implement", "create", "build"
+        ]
+        text_lower = text.lower()
+        return any(indicator in text_lower for indicator in complex_indicators)
+
+    def _extract_keywords(self, text: str) -> List[str]:
+        """Extract keywords from text.
+        从文本中提取关键字。
+
+        Args:
+            text: Text to extract keywords from.
+                要提取关键字的文本。
+
+        Returns:
+            List of extracted keywords.
+            提取的关键字列表。
+        """
+        # Simple keyword extraction - could be enhanced with NLP
+        import re
+        words = re.findall(r'\b\w+\b', text.lower())
+        # Filter out common words
+        common_words = {
+            'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
+            'of', 'with', 'by', 'is', 'are', 'was', 'were', 'be', 'been', 'have',
+            'has', 'had', 'do', 'does', 'did', 'will', 'would', 'could', 'should',
+            'this', 'that', 'these', 'those', 'i', 'you', 'he', 'she', 'it', 'we',
+            'they', 'me', 'him', 'her', 'us', 'them', 'my', 'your', 'his', 'its',
+            'our', 'their', 'what', 'which', 'who', 'when', 'where', 'why', 'how',
+            'as', 'if', 'so', 'than', 'too', 'very', 'just', 'now', 'then', 'there',
+            'here', 'up', 'down', 'out', 'over', 'under', 'again', 'further', 'then',
+            'once', 'more', 'can', 'may', 'might', 'must', 'shall', 'need', 'ought'
+        }
+        keywords = [word for word in words if word not in common_words and len(word) > 2]
+        # Return unique keywords, limit to top 10
+        unique_keywords = list(dict.fromkeys(keywords))  # Preserves order
+        return unique_keywords[:10]
 
     def _parse_tool_call(self, response: str) -> Optional[Dict[str, Any]]:
         """Parse tool call from model response.
