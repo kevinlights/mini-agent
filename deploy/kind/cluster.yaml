@@ -19,18 +19,38 @@ nodes:
     # Port mappings for services
     # 服务端口映射
     extraPortMappings:
-      # Frontend service
-      # 前端服务
+      # Gateway HTTP port
+      # Gateway HTTP 端口
       - containerPort: 80
         hostPort: 8080
         protocol: TCP
         listenAddress: "0.0.0.0"
-      # Backend service
-      # 后端服务
+      # Gateway HTTPS port
+      # Gateway HTTPS 端口
+      - containerPort: 443
+        hostPort: 8443
+        protocol: TCP
+        listenAddress: "0.0.0.0"
+      # Backend service (direct access)
+      # 后端服务（直接访问）
       - containerPort: 8000
         hostPort: 8000
         protocol: TCP
         listenAddress: "0.0.0.0"
+      # Frontend service (direct access)
+      # 前端服务（直接访问）
+      - containerPort: 8001
+        hostPort: 8001
+        protocol: TCP
+        listenAddress: "0.0.0.0"
+    # Kubeadm configuration for Gateway API feature gates
+    # Gateway API 功能门的 kubeadm 配置
+    kubeadmConfigPatches:
+      - |
+        kind: InitConfiguration
+        nodeRegistration:
+          kubeletExtraArgs:
+            feature-gates: "AllAlpha=false,AllBeta=false"
 
 # Containerd configuration for private registries
 # 私有注册表的 containerd 配置
@@ -38,3 +58,8 @@ containerdConfigPatches:
   - |-
     [plugins."io.containerd.grpc.v1.cri".registry]
       config_path = "/etc/containerd/certs.d"
+
+# Runtime configuration for Gateway API support
+# Gateway API 支持的运行时配置
+featureGates:
+  GatewayAPI: true

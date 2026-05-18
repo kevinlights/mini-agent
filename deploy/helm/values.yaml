@@ -1,0 +1,71 @@
+# Default values for mini-agent
+# mini-agent 的默认值
+
+# Backend configuration
+# 后端配置
+backend:
+  replicaCount: 1
+  image:
+    repository: mini-agent-backend
+    pullPolicy: IfNotPresent
+    tag: "latest"
+  service:
+    type: ClusterIP
+    port: 8000
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+  env:
+    MODEL_BASE_URL: "http://host.containers.internal:1234"
+    APP_HOST: "0.0.0.0"
+    APP_PORT: "8000"
+    APP_DEBUG: "false"
+    MEMORY_PATH: "/data/memories.jsonl"
+    SKILLS_PATH: "/app/skills/skills"
+    CONTEXT_MAX_TOKENS: "4096"
+  persistence:
+    enabled: true
+    size: 1Gi
+    storageClass: ""
+
+# Frontend configuration
+# 前端配置
+frontend:
+  replicaCount: 1
+  image:
+    repository: mini-agent-frontend
+    pullPolicy: IfNotPresent
+    tag: "latest"
+  service:
+    type: ClusterIP
+    port: 8001
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+
+# Gateway API configuration
+# Gateway API 配置
+gateway:
+  enabled: false
+  gatewayClassName: envoy
+  port: 80
+
+# Node selector
+# 节点选择器
+nodeSelector: {}
+
+# Tolerations
+# 容忍度
+tolerations: []
+
+# Affinity
+# 亲和性
+affinity: {}

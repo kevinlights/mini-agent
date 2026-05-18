@@ -232,8 +232,21 @@ kind-delete:
 kind-load: build build-frontend
 	@echo "Loading images to Kind cluster..."
 	@echo "正在加载镜像到 Kind 集群..."
-	kind load docker-image mini-agent-backend:latest --name mini-agent
-	kind load docker-image mini-agent-frontend:latest --name mini-agent
+	@echo "Exporting backend image to tar..."
+	@echo "正在导出后端镜像为 tar..."
+	podman save mini-agent-backend:latest -o /tmp/mini-agent-backend.tar
+	@echo "Loading backend image to Kind..."
+	@echo "正在加载后端镜像到 Kind..."
+	kind load image-archive /tmp/mini-agent-backend.tar --name mini-agent
+	@echo "Exporting frontend image to tar..."
+	@echo "正在导出前端镜像为 tar..."
+	podman save mini-agent-frontend:latest -o /tmp/mini-agent-frontend.tar
+	@echo "Loading frontend image to Kind..."
+	@echo "正在加载前端镜像到 Kind..."
+	kind load image-archive /tmp/mini-agent-frontend.tar --name mini-agent
+	@echo "Cleaning up tar files..."
+	@echo "正在清理 tar 文件..."
+	rm -f /tmp/mini-agent-backend.tar /tmp/mini-agent-frontend.tar
 	@echo "Images loaded."
 	@echo "镜像已加载。"
 
@@ -256,3 +269,10 @@ kind-undeploy:
 	helm uninstall mini-agent --namespace mini-agent
 	@echo "Undeployment complete."
 	@echo "取消部署完成。"
+
+.PHONY: install-gateway
+install-gateway:
+	cd deploy/kind && wget https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.5.0/standard-install.yaml
+	kubectl apply -f standard-install.yaml
+	@echo "Gateway API installed."
+	@echo "Gateway API 已安装。"

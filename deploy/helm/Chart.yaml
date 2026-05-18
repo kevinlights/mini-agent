@@ -1,0 +1,29 @@
+# Helm chart for mini-agent
+# mini-agent 的 Helm Chart
+
+apiVersion: v2
+name: mini-agent
+description: Mini Agent Framework for local agent learning and research
+description_zh: 用于本地智能体学习和研究的迷你智能体框架
+
+# Chart version
+# Chart 版本
+version: 0.1.0
+
+# Application version
+# 应用版本
+appVersion: "0.1.0"
+
+# Kubernetes version requirement
+# Kubernetes 版本要求
+kubeVersion: ">=1.24.0"
+
+# Chart type
+# Chart 类型
+type: application
+
+# Maintainer
+# 维护者
+maintainers:
+  - name: mini-agent-team
+    email: guangjinhai@163.com
