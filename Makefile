@@ -1,7 +1,7 @@
 # Mini-Agent Makefile
 # Mini-Agent 项目的 Makefile
 
-.PHONY: help install dev test lint clean build docker run stop
+.PHONY: help install dev dev-frontend test lint clean build docker run stop
 
 # Default target
 # 默认目标
@@ -12,8 +12,11 @@ help:
 	@echo "  make install    - Install Python dependencies"
 	@echo "  make install    - 安装 Python 依赖"
 	@echo ""
-	@echo "  make dev        - Start development server"
-	@echo "  make dev        - 启动开发服务器"
+	@echo "  make dev        - Start backend development server"
+	@echo "  make dev        - 启动后端开发服务器"
+	@echo ""
+	@echo "  make dev-frontend - Start frontend development server"
+	@echo "  make dev-frontend - 启动前端开发服务器"
 	@echo ""
 	@echo "  make test       - Run tests"
 	@echo "  make test       - 运行测试"
@@ -56,6 +59,14 @@ dev:
 	@echo "Starting development server..."
 	@echo "正在启动开发服务器..."
 	cd backend && python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+
+# Start frontend development server
+# 启动前端开发服务器
+dev-frontend:
+	@echo "Starting frontend development server..."
+	@echo "正在启动前端开发服务器..."
+	cd frontend && npm run dev
 
 
 # Run tests
