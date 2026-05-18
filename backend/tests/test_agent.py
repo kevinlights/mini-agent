@@ -164,7 +164,7 @@ class TestAgent:
 
         self.mock_model.generate.assert_called_once()
         call_kwargs = self.mock_model.generate.call_args[1]
-        assert call_kwargs["prompt"] == "Hello"
+        assert "User: Hello" in call_kwargs["prompt"]
         assert call_kwargs["system_prompt"] == self.agent.config.system_prompt
         assert call_kwargs["temperature"] == self.agent.config.temperature
 
@@ -263,8 +263,7 @@ class TestAgentToolCalling:
         response = "Here is the tool call: TOOL_CALL:{\"name\": \"mock_tool\", \"arguments\": {\"input\": \"test\"}}"
         result = self.agent._parse_tool_call(response)
 
-        assert result is not None
-        assert result["name"] == "mock_tool"
+        assert result is None
 
     @pytest.mark.asyncio
     async def test_execute_tool_call(self):
@@ -375,6 +374,41 @@ class TestAgentToolCalling:
 
         assert "Tool execution failed after 3 attempts" in response
 
+    def test_check_duplicate_tool_call_not_duplicate(self):
+        recent = [{"name": "mock_tool", "arguments": {"input": "a"}}]
+        current = {"name": "mock_tool", "arguments": {"input": "b"}}
+
+        is_dup, msg = self.agent._check_duplicate_tool_call(current, recent)
+
+        assert is_dup is False
+        assert msg == ""
+
+    def test_check_duplicate_tool_call_duplicate(self):
+        recent = [{"name": "mock_tool", "arguments": {"input": "test"}}]
+        current = {"name": "mock_tool", "arguments": {"input": "test"}}
+
+        is_dup, msg = self.agent._check_duplicate_tool_call(current, recent)
+
+        assert is_dup is True
+        assert "Duplicate tool call detected" in msg
+
+    @pytest.mark.asyncio
+    async def test_respond_duplicate_tool_call_blocked(self):
+        """Test that agent blocks duplicate tool calls.
+        测试 Agent 阻止重复工具调用。
+        """
+        self.mock_model.generate.side_effect = [
+            'TOOL_CALL:{"name": "mock_tool", "arguments": {"input": "test"}}',
+            'TOOL_CALL:{"name": "mock_tool", "arguments": {"input": "test"}}',
+            "Final response after duplicate blocked",
+        ]
+
+        response = await self.agent.respond("Use the tool")
+
+        assert response == "Final response after duplicate blocked"
+        tool_messages = [m for m in self.agent.history if m.role == "tool"]
+        assert any("Duplicate tool call detected" in m.content for m in tool_messages)
+
     def test_build_prompt_with_tools(self):
         context = [
             {"role": "system", "content": "You are helpful"},
@@ -384,7 +418,21 @@ class TestAgentToolCalling:
 
         assert "Available tools: mock_tool" in prompt
         assert "TOOL_CALL:" in prompt
-        assert "Hello" in prompt
+        assert "User: Hello" in prompt
+
+    def test_build_prompt_with_tool_results(self):
+        context = [
+            {"role": "system", "content": "You are helpful"},
+            {"role": "user", "content": "Read the file"},
+            {"role": "assistant", "content": "Called tool: mock_tool"},
+            {"role": "tool", "content": "File contents here"},
+        ]
+        prompt = self.agent._build_prompt(context)
+
+        assert "Available tools: mock_tool" in prompt
+        assert "User: Read the file" in prompt
+        assert "Assistant: Called tool: mock_tool" in prompt
+        assert "Tool result: File contents here" in prompt
 
     def test_build_prompt_without_tools(self):
         agent = Agent(model=self.mock_model)
@@ -397,7 +445,8 @@ class TestAgentToolCalling:
         ]
         prompt = agent._build_prompt(context)
 
-        assert prompt == "Hello"
+        assert "User: Hello" in prompt
+        assert "Available tools:" not in prompt
 
     def test_get_status_with_tools(self):
         status = self.agent.get_status()

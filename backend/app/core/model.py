@@ -74,7 +74,7 @@ class LMStudioModel(BaseModel):
     """
 
     def __init__(
-        self, base_url: str = "http://127.0.0.1:1234", model_name: Optional[str] = None
+        self, base_url: str = "http://127.0.0.1:1234", model_name: Optional[str] = None, debug: bool = False
     ):
         """Initialize LM Studio client.
         初始化 LM Studio 客户端。
@@ -84,9 +84,12 @@ class LMStudioModel(BaseModel):
                 LM Studio API 的基础 URL。
             model_name: Specific model to use (optional).
                 要使用的特定模型（可选）。
+            debug: Enable debug logging.
+                启用调试日志。
         """
         self.base_url = base_url.rstrip("/")
         self.model_name = model_name
+        self.debug = debug
 
     @property
     def name(self) -> str:
@@ -157,6 +160,20 @@ class LMStudioModel(BaseModel):
         params = {"messages": messages, "temperature": temperature, "model": self.model_name}
         if max_tokens:
             params["max_tokens"] = max_tokens
+
+        if self.debug:
+            print(f"\n[MODEL DEBUG] generate() called:")
+            print(f"  - model: {self.model_name}")
+            print(f"  - temperature: {temperature}")
+            print(f"  - max_tokens: {max_tokens}")
+            print(f"  - messages count: {len(messages)}")
+            for i, msg in enumerate(messages):
+                role = msg.get("role", "unknown")
+                content_preview = str(msg.get("content", ""))[:100]
+                print(f"  - message[{i}]: role={role}, content={content_preview}...")
+            print(f"  - tools: {params.get('tools', 'NOT SET')}")
+            print(f"  - tool_choice: {params.get('tool_choice', 'NOT SET')}")
+            print(f"  - full params keys: {list(params.keys())}")
 
         try:
             result = await self._make_request("/v1/chat/completions", json_data=params)

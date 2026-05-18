@@ -36,6 +36,7 @@ class AgentConfig:
     max_history: int = 20  # Maximum number of messages to keep in history
     enable_tools: bool = True  # Whether to enable tool calling
     max_tool_calls: int = 5  # Maximum tool calls per response
+    debug: bool = False  # Enable debug logging
 
 
 class Agent:
@@ -69,6 +70,10 @@ class Agent:
         self.history: List[Message] = []
         self.is_active = True
         self.tool_registry = tool_registry or ToolRegistry()
+
+        # Pass debug flag to model if it supports it
+        if hasattr(self.model, "debug"):
+            self.model.debug = self.config.debug
 
     def add_message(
         self, role: str, content: str, metadata: Optional[Dict[str, Any]] = None
@@ -145,16 +150,20 @@ class Agent:
         max_tool_calls = self.config.max_tool_calls
         consecutive_errors = 0
         max_consecutive_errors = 3
+        recent_tool_calls: List[Dict[str, Any]] = []
+        max_same_tool_calls = 2
 
         while tool_call_count < max_tool_calls:
-            print(f"\n[DEBUG] ReAct loop iteration {tool_call_count + 1}/{max_tool_calls}")
+            if self.config.debug:
+                print(f"\n[DEBUG] ReAct loop iteration {tool_call_count + 1}/{max_tool_calls}")
 
             # Get context for the model
             context_messages = self.get_context_messages()
 
             # Build the prompt from context
             prompt = self._build_prompt(context_messages)
-            print(f"[DEBUG] Prompt: {prompt[:200]}...")
+            if self.config.debug:
+                print(f"[DEBUG] Prompt: {prompt[:200]}...")
 
             # Generate response using the model
             response = await self.model.generate(
@@ -163,21 +172,47 @@ class Agent:
                 temperature=self.config.temperature,
                 max_tokens=self.config.max_tokens,
             )
-            print(f"[DEBUG] Model response: {response[:200]}...")
+            if self.config.debug:
+                print(f"[DEBUG] Model response: {response[:200]}...")
 
             # Check if response contains tool call
             if self.config.enable_tools:
                 tool_call = self._parse_tool_call(response)
                 if tool_call:
-                    print(f"[DEBUG] Parsed tool call: {tool_call}")
-                    # Execute the tool and add results to history
-                    result, is_error = await self._execute_tool_call(tool_call)
-                    print(f"[DEBUG] Tool execution result: {result[:200]}...")
+                    if self.config.debug:
+                        print(f"[DEBUG] Parsed tool call: {tool_call}")
+
+                    # Check for duplicate tool call
+                    is_duplicate, dup_msg = self._check_duplicate_tool_call(tool_call, recent_tool_calls)
+                    if is_duplicate:
+                        if self.config.debug:
+                            print(f"[DEBUG] Duplicate tool call detected: {dup_msg}")
+                        result = dup_msg
+                        is_error = True
+                        # Add duplicate warning to history
+                        self.add_message(
+                            "assistant",
+                            f"Called tool: {tool_call.get('name', 'unknown')}",
+                            metadata={"tool_call": tool_call},
+                        )
+                        self.add_message(
+                            "tool",
+                            result,
+                            metadata={"tool_name": tool_call.get("name")},
+                        )
+                    else:
+                        # Execute the tool and add results to history
+                        result, is_error = await self._execute_tool_call(tool_call)
+                        recent_tool_calls.append(tool_call)
+
+                    if self.config.debug:
+                        print(f"[DEBUG] Tool execution result: {result[:200]}...")
 
                     if is_error:
                         consecutive_errors += 1
                         if consecutive_errors >= max_consecutive_errors:
-                            print(f"[DEBUG] Max consecutive errors ({max_consecutive_errors}) reached")
+                            if self.config.debug:
+                                print(f"[DEBUG] Max consecutive errors ({max_consecutive_errors}) reached")
                             return f"Tool execution failed after {max_consecutive_errors} attempts: {result}"
                         # Error feedback - don't increment tool_call_count, let model retry
                         continue
@@ -186,7 +221,8 @@ class Agent:
                         tool_call_count += 1
                         continue  # Continue the loop for next reasoning step
                 else:
-                    print(f"[DEBUG] No tool call detected in response")
+                    if self.config.debug:
+                        print(f"[DEBUG] No tool call detected in response")
 
             # No tool call - this is the final response
             consecutive_errors = 0
@@ -194,7 +230,8 @@ class Agent:
             return response
 
         # Max tool calls reached
-        print(f"[DEBUG] Max tool calls ({max_tool_calls}) reached")
+        if self.config.debug:
+            print(f"[DEBUG] Max tool calls ({max_tool_calls}) reached")
         return "Maximum tool calls reached. Please refine your request."
 
     def _parse_tool_call(self, response: str) -> Optional[Dict[str, Any]]:
@@ -209,9 +246,10 @@ class Agent:
             Tool call dict or None if no tool call found.
             工具调用字典，如果未找到则返回 None。
         """
-        # Look for tool call pattern: TOOL_CALL:{"name": "...", "arguments": {...}}
         prefix = "TOOL_CALL:"
         stripped = response.strip()
+
+        # Only treat as tool call if response starts with TOOL_CALL:
         if stripped.startswith(prefix):
             try:
                 tool_data = json.loads(stripped[len(prefix):])
@@ -219,16 +257,37 @@ class Agent:
             except json.JSONDecodeError:
                 return None
 
-        # Also check if TOOL_CALL: appears anywhere in the response
-        idx = response.find(prefix)
-        if idx >= 0:
-            try:
-                tool_data = json.loads(response[idx + len(prefix):])
-                return tool_data
-            except json.JSONDecodeError:
-                return None
-
         return None
+
+    def _check_duplicate_tool_call(
+        self, tool_call: Dict[str, Any], recent_calls: List[Dict[str, Any]]
+    ) -> tuple[bool, str]:
+        """Check if tool call is a duplicate of recent calls.
+        检查工具调用是否与近期调用重复。
+
+        Args:
+            tool_call: Current tool call data.
+                当前工具调用数据。
+            recent_calls: List of recent tool calls.
+                近期工具调用列表。
+
+        Returns:
+            Tuple of (is_duplicate, error_message).
+            是否重复和错误消息的元组。
+        """
+        tool_name = tool_call.get("name", "")
+        arguments = tool_call.get("arguments", {})
+
+        # Check if same tool with same arguments was called recently
+        for prev in recent_calls:
+            if prev.get("name") == tool_name and prev.get("arguments") == arguments:
+                msg = (
+                    f"Duplicate tool call detected: {tool_name} with same arguments. "
+                    f"You have already called this tool. Use the previous result or try a different approach."
+                )
+                return True, msg
+
+        return False, ""
 
     async def _execute_tool_call(self, tool_call: Dict[str, Any]) -> tuple[str, bool]:
         """Execute a tool call and add results to history.
@@ -283,22 +342,47 @@ class Agent:
             Formatted prompt string.
             格式化的提示字符串。
         """
-        # Add tool instructions if tools are enabled
         prompt_parts = []
+
+        # Add tool instructions if tools are enabled
         if self.config.enable_tools and self.tool_registry.list_tools():
             tool_defs = self.tool_registry.get_tool_definitions()
             tool_names = [t["function"]["name"] for t in tool_defs]
             prompt_parts.append(
                 f"Available tools: {', '.join(tool_names)}. "
-                f"If you need to use a tool, respond with: "
+                f"If you need to use a tool, respond with ONLY: "
                 f'TOOL_CALL:{{"name": "tool_name", "arguments": {{"arg name(e.g., action)": "arg value"}}, {{"arg name": "arg value"}}}}'
+                f"\nIMPORTANT: After receiving tool results, analyze if the task is complete. "
+                f"If complete, respond with a final answer WITHOUT TOOL_CALL. "
+                f"Only use TOOL_CALL when you still need more information."
             )
 
-        # Find the last user message
-        for msg in reversed(context_messages):
-            if msg["role"] == "user":
-                prompt_parts.append(msg["content"])
-                break
+            # Add detailed tool parameter definitions
+            for tool_def in tool_defs:
+                func = tool_def["function"]
+                params = func["parameters"]["properties"]
+                required = func["parameters"].get("required", [])
+                param_desc = []
+                for pname, pinfo in params.items():
+                    ptype = pinfo.get("type", "string")
+                    pdesc = pinfo.get("description", "")
+                    preq = "(required)" if pname in required else "(optional)"
+                    penum = f" Options: {', '.join(pinfo.get('enum', []))}" if "enum" in pinfo else ""
+                    param_desc.append(f"  - {pname} ({ptype}) {preq}: {pdesc}{penum}")
+                prompt_parts.append(
+                    f"Tool '{func['name']}' parameters:\n"
+                    + "\n".join(param_desc)
+                )
+
+        # Include full conversation history (excluding system prompt)
+        for msg in context_messages:
+            if msg["role"] != "system":
+                if msg["role"] == "user":
+                    prompt_parts.append(f"User: {msg['content']}")
+                elif msg["role"] == "assistant":
+                    prompt_parts.append(f"Assistant: {msg['content']}")
+                elif msg["role"] == "tool":
+                    prompt_parts.append(f"Tool result: {msg['content']}")
 
         return "\n".join(prompt_parts) if prompt_parts else ""
 
@@ -352,7 +436,14 @@ if __name__ == "__main__":
     registry = ToolRegistry()
     registry.register(FileTool())
 
-    agent = Agent(model=model, tool_registry=registry)
+    config = AgentConfig(
+        name="test_agent",
+        temperature=0.7,
+        enable_tools=True,
+        debug=True,
+    )
+
+    agent = Agent(model=model, tool_registry=registry, config=config)
     agent.activate()
     print(agent.get_status())
     response = asyncio.run(agent.respond("List the files in the /tmp directory"))
