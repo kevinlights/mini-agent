@@ -140,30 +140,62 @@ class Agent:
         # Add user message to history
         self.add_message("user", user_input)
 
-        # Get context for the model
-        context_messages = self.get_context_messages()
+        # ReAct loop: Reason -> Act -> Observe -> Reason...
+        tool_call_count = 0
+        max_tool_calls = self.config.max_tool_calls
+        consecutive_errors = 0
+        max_consecutive_errors = 3
 
-        # Build the prompt from context
-        prompt = self._build_prompt(context_messages)
+        while tool_call_count < max_tool_calls:
+            print(f"\n[DEBUG] ReAct loop iteration {tool_call_count + 1}/{max_tool_calls}")
 
-        # Generate response using the model
-        response = await self.model.generate(
-            prompt=prompt,
-            system_prompt=self.config.system_prompt,
-            temperature=self.config.temperature,
-            max_tokens=self.config.max_tokens,
-        )
+            # Get context for the model
+            context_messages = self.get_context_messages()
 
-        # Check if response contains tool call
-        if self.config.enable_tools:
-            tool_call = self._parse_tool_call(response)
-            if tool_call:
-                return await self._handle_tool_call(tool_call, context_messages)
+            # Build the prompt from context
+            prompt = self._build_prompt(context_messages)
+            print(f"[DEBUG] Prompt: {prompt[:200]}...")
 
-        # Add assistant response to history
-        self.add_message("assistant", response)
+            # Generate response using the model
+            response = await self.model.generate(
+                prompt=prompt,
+                system_prompt=self.config.system_prompt,
+                temperature=self.config.temperature,
+                max_tokens=self.config.max_tokens,
+            )
+            print(f"[DEBUG] Model response: {response[:200]}...")
 
-        return response
+            # Check if response contains tool call
+            if self.config.enable_tools:
+                tool_call = self._parse_tool_call(response)
+                if tool_call:
+                    print(f"[DEBUG] Parsed tool call: {tool_call}")
+                    # Execute the tool and add results to history
+                    result, is_error = await self._execute_tool_call(tool_call)
+                    print(f"[DEBUG] Tool execution result: {result[:200]}...")
+
+                    if is_error:
+                        consecutive_errors += 1
+                        if consecutive_errors >= max_consecutive_errors:
+                            print(f"[DEBUG] Max consecutive errors ({max_consecutive_errors}) reached")
+                            return f"Tool execution failed after {max_consecutive_errors} attempts: {result}"
+                        # Error feedback - don't increment tool_call_count, let model retry
+                        continue
+                    else:
+                        consecutive_errors = 0
+                        tool_call_count += 1
+                        continue  # Continue the loop for next reasoning step
+                else:
+                    print(f"[DEBUG] No tool call detected in response")
+
+            # No tool call - this is the final response
+            consecutive_errors = 0
+            self.add_message("assistant", response)
+            return response
+
+        # Max tool calls reached
+        print(f"[DEBUG] Max tool calls ({max_tool_calls}) reached")
+        return "Maximum tool calls reached. Please refine your request."
 
     def _parse_tool_call(self, response: str) -> Optional[Dict[str, Any]]:
         """Parse tool call from model response.
@@ -179,41 +211,51 @@ class Agent:
         """
         # Look for tool call pattern: TOOL_CALL:{"name": "...", "arguments": {...}}
         prefix = "TOOL_CALL:"
-        if response.startswith(prefix):
+        stripped = response.strip()
+        if stripped.startswith(prefix):
             try:
-                tool_data = json.loads(response[len(prefix):])
+                tool_data = json.loads(stripped[len(prefix):])
                 return tool_data
             except json.JSONDecodeError:
                 return None
+
+        # Also check if TOOL_CALL: appears anywhere in the response
+        idx = response.find(prefix)
+        if idx >= 0:
+            try:
+                tool_data = json.loads(response[idx + len(prefix):])
+                return tool_data
+            except json.JSONDecodeError:
+                return None
+
         return None
 
-    async def _handle_tool_call(
-        self, tool_call: Dict[str, Any], context_messages: List[Dict[str, str]]
-    ) -> str:
-        """Handle a tool call from the model.
-        处理来自模型的工具调用。
+    async def _execute_tool_call(self, tool_call: Dict[str, Any]) -> tuple[str, bool]:
+        """Execute a tool call and add results to history.
+        执行工具调用并将结果添加到历史中。
 
         Args:
             tool_call: Tool call data.
                 工具调用数据。
-            context_messages: Current context messages.
-                当前上下文消息。
 
         Returns:
-            Final response after tool execution.
-            工具执行后的最终响应。
+            Tuple of (result string, is_error flag).
+            结果字符串和错误标志的元组。
         """
         tool_name = tool_call.get("name")
         arguments = tool_call.get("arguments", {})
 
         if not tool_name:
-            return "Invalid tool call: missing tool name."
-
-        # Execute the tool
-        try:
-            result = await self.tool_registry.execute_tool(tool_name, **arguments)
-        except Exception as e:
-            result = f"Error executing tool '{tool_name}': {str(e)}"
+            result = "Invalid tool call: missing tool name."
+            is_error = True
+        else:
+            # Execute the tool
+            try:
+                result = await self.tool_registry.execute_tool(tool_name, **arguments)
+                is_error = result.startswith("Error")
+            except Exception as e:
+                result = f"Error executing tool '{tool_name}': {str(e)}"
+                is_error = True
 
         # Add tool call and result to history
         self.add_message(
@@ -227,19 +269,7 @@ class Agent:
             metadata={"tool_name": tool_name},
         )
 
-        # Get updated context and generate final response
-        updated_context = self.get_context_messages()
-        final_prompt = self._build_prompt(updated_context)
-
-        final_response = await self.model.generate(
-            prompt=final_prompt,
-            system_prompt=self.config.system_prompt,
-            temperature=self.config.temperature,
-            max_tokens=self.config.max_tokens,
-        )
-
-        self.add_message("assistant", final_response)
-        return final_response
+        return result, is_error
 
     def _build_prompt(self, context_messages: List[Dict[str, str]]) -> str:
         """Build the prompt from context messages.
@@ -261,7 +291,7 @@ class Agent:
             prompt_parts.append(
                 f"Available tools: {', '.join(tool_names)}. "
                 f"If you need to use a tool, respond with: "
-                f'TOOL_CALL:{{"name": "tool_name", "arguments": {{"arg1": "value1"}}}}'
+                f'TOOL_CALL:{{"name": "tool_name", "arguments": {{"arg name(e.g., action)": "arg value"}}, {{"arg name": "arg value"}}}}'
             )
 
         # Find the last user message
@@ -316,7 +346,7 @@ if __name__ == "__main__":
     from app.tools.builtins.file_tool import FileTool
 
     model = LMStudioModel(
-        base_url="http://127.0.0.1:1234", model_name="qwen/qwen3-1.7b"
+        base_url="http://127.0.0.1:1234", model_name="qwen/qwen3-4b-2507"
     )
 
     registry = ToolRegistry()
@@ -325,7 +355,7 @@ if __name__ == "__main__":
     agent = Agent(model=model, tool_registry=registry)
     agent.activate()
     print(agent.get_status())
-    response = asyncio.run(agent.respond("List the files in the current directory"))
+    response = asyncio.run(agent.respond("List the files in the /tmp directory"))
     print(response)
     agent.deactivate()
     print(agent.get_status())

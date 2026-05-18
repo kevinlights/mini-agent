@@ -252,40 +252,50 @@ class TestAgentToolCalling:
 
         assert result is None
 
+    def test_parse_tool_call_with_leading_whitespace(self):
+        response = '\n\nTOOL_CALL:{"name": "mock_tool", "arguments": {"input": "test"}}'
+        result = self.agent._parse_tool_call(response)
+
+        assert result is not None
+        assert result["name"] == "mock_tool"
+
+    def test_parse_tool_call_embedded_in_text(self):
+        response = "Here is the tool call: TOOL_CALL:{\"name\": \"mock_tool\", \"arguments\": {\"input\": \"test\"}}"
+        result = self.agent._parse_tool_call(response)
+
+        assert result is not None
+        assert result["name"] == "mock_tool"
+
     @pytest.mark.asyncio
-    async def test_handle_tool_call(self):
+    async def test_execute_tool_call(self):
         tool_call = {"name": "mock_tool", "arguments": {"input": "test"}}
-        self.mock_model.generate.return_value = "Final response"
 
-        result = await self.agent._handle_tool_call(tool_call, [])
+        result, is_error = await self.agent._execute_tool_call(tool_call)
 
-        assert result == "Final response"
-        assert len(self.agent.history) == 3
+        assert result == "Mock result: test"
+        assert is_error is False
+        assert len(self.agent.history) == 2
         assert self.agent.history[0].role == "assistant"
         assert "Called tool: mock_tool" in self.agent.history[0].content
         assert self.agent.history[1].role == "tool"
         assert self.agent.history[1].content == "Mock result: test"
-        assert self.agent.history[2].role == "assistant"
-        assert self.agent.history[2].content == "Final response"
 
     @pytest.mark.asyncio
-    async def test_handle_tool_call_error(self):
+    async def test_execute_tool_call_error(self):
         tool_call = {"name": "mock_tool", "arguments": {"input": "test"}}
 
-        # Make execute_tool raise an exception
         self.registry.execute_tool = AsyncMock(
             side_effect=Exception("Tool execution failed")
         )
-        self.mock_model.generate.return_value = "Error response"
 
-        result = await self.agent._handle_tool_call(tool_call, [])
+        result, is_error = await self.agent._execute_tool_call(tool_call)
 
-        assert result == "Error response"
-        assert "Error executing tool" in self.agent.history[1].content
+        assert "Error executing tool" in result
+        assert is_error is True
+        assert len(self.agent.history) == 2
 
     @pytest.mark.asyncio
-    async def test_respond_with_tool_call(self):
-        # First call returns tool call, second call returns final response
+    async def test_respond_with_single_tool_call(self):
         self.mock_model.generate.side_effect = [
             'TOOL_CALL:{"name": "mock_tool", "arguments": {"input": "test"}}',
             "Final response after tool use",
@@ -297,6 +307,19 @@ class TestAgentToolCalling:
         assert len(self.agent.history) == 4
 
     @pytest.mark.asyncio
+    async def test_respond_with_multiple_tool_calls(self):
+        self.mock_model.generate.side_effect = [
+            'TOOL_CALL:{"name": "mock_tool", "arguments": {"input": "first"}}',
+            'TOOL_CALL:{"name": "mock_tool", "arguments": {"input": "second"}}',
+            "Final response after two tools",
+        ]
+
+        response = await self.agent.respond("Use two tools")
+
+        assert response == "Final response after two tools"
+        assert len(self.agent.history) == 6
+
+    @pytest.mark.asyncio
     async def test_respond_without_tool_call(self):
         self.mock_model.generate.return_value = "Normal response"
 
@@ -304,6 +327,53 @@ class TestAgentToolCalling:
 
         assert response == "Normal response"
         assert len(self.agent.history) == 2
+
+    @pytest.mark.asyncio
+    async def test_respond_max_tool_calls_reached(self):
+        config = AgentConfig(max_tool_calls=2)
+        agent = Agent(model=self.mock_model, tool_registry=self.registry, config=config)
+
+        self.mock_model.generate.side_effect = [
+            'TOOL_CALL:{"name": "mock_tool", "arguments": {"input": "1"}}',
+            'TOOL_CALL:{"name": "mock_tool", "arguments": {"input": "2"}}',
+            'TOOL_CALL:{"name": "mock_tool", "arguments": {"input": "3"}}',
+        ]
+
+        response = await agent.respond("Use many tools")
+
+        assert response == "Maximum tool calls reached. Please refine your request."
+
+    @pytest.mark.asyncio
+    async def test_respond_error_retry_and_fix(self):
+        """Test that agent retries when tool call fails with error feedback.
+        测试当工具调用失败时，Agent 会收到错误反馈并重试。
+        """
+        self.mock_model.generate.side_effect = [
+            'TOOL_CALL:{"name": "mock_tool", "arguments": {}}',
+            'TOOL_CALL:{"name": "mock_tool", "arguments": {"input": "fixed"}}',
+            "Final response after retry",
+        ]
+
+        response = await self.agent.respond("Use the tool")
+
+        assert response == "Final response after retry"
+        assert len(self.agent.history) == 6
+
+    @pytest.mark.asyncio
+    async def test_respond_max_consecutive_errors(self):
+        """Test that agent stops after max consecutive tool errors.
+        测试当连续工具错误达到上限时，Agent 会停止。
+        """
+        self.mock_model.generate.side_effect = [
+            'TOOL_CALL:{"name": "mock_tool", "arguments": {}}',
+            'TOOL_CALL:{"name": "mock_tool", "arguments": {}}',
+            'TOOL_CALL:{"name": "mock_tool", "arguments": {}}',
+            'TOOL_CALL:{"name": "mock_tool", "arguments": {}}',
+        ]
+
+        response = await self.agent.respond("Use the tool")
+
+        assert "Tool execution failed after 3 attempts" in response
 
     def test_build_prompt_with_tools(self):
         context = [
