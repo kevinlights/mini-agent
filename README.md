@@ -82,7 +82,9 @@ mini-agent/
 │   ├── public/              # Static assets
 │   ├── package.json
 │   ├── vite.config.ts      # Vite configuration
-│   └── tsconfig.json       # TypeScript configuration
+│   ├── tsconfig.json       # TypeScript configuration
+│   ├── Dockerfile          # Frontend container build
+│   └── nginx.conf          # Nginx configuration for production
 │
 ├── deploy/                   # Kubernetes Deployment
 │   ├── kind/               # Kind cluster configuration

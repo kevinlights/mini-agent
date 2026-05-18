@@ -1,7 +1,7 @@
 # Mini-Agent Makefile
 # Mini-Agent 项目的 Makefile
 
-.PHONY: help install dev dev-frontend test lint clean build docker run stop
+.PHONY: help install dev dev-frontend test lint clean build build-frontend run run-frontend stop stop-frontend stop-all
 
 # Default target
 # 默认目标
@@ -33,14 +33,26 @@ help:
 	@echo "  make clean      - Clean up"
 	@echo "  make clean      - 清理"
 	@echo ""
-	@echo "  make build      - Build Docker image"
-	@echo "  make build      - 构建 Docker 镜像"
+	@echo "  make build      - Build backend Docker image"
+	@echo "  make build      - 构建后端 Docker 镜像"
 	@echo ""
-	@echo "  make run        - Run Docker container"
-	@echo "  make run        - 运行 Docker 容器"
+	@echo "  make build-frontend - Build frontend Docker image"
+	@echo "  make build-frontend - 构建前端 Docker 镜像"
 	@echo ""
-	@echo "  make stop       - Stop Docker container"
-	@echo "  make stop       - 停止 Docker 容器"
+	@echo "  make run        - Run backend Docker container"
+	@echo "  make run        - 运行后端 Docker 容器"
+	@echo ""
+	@echo "  make run-frontend - Run frontend Docker container"
+	@echo "  make run-frontend - 运行前端 Docker 容器"
+	@echo ""
+	@echo "  make stop       - Stop backend Docker container"
+	@echo "  make stop       - 停止后端 Docker 容器"
+	@echo ""
+	@echo "  make stop-frontend - Stop frontend Docker container"
+	@echo "  make stop-frontend - 停止前端 Docker 容器"
+	@echo ""
+	@echo "  make stop-all   - Stop all Docker containers"
+	@echo "  make stop-all   - 停止所有 Docker 容器"
 
 
 # Install dependencies
@@ -117,28 +129,64 @@ clean:
 	@echo "清理完成。"
 
 
-# Build Docker image
-# 构建 Docker 镜像
+# Build backend Docker image
+# 构建后端 Docker 镜像
 build:
-	@echo "Building Docker image..."
-	@echo "正在构建 Docker 镜像..."
-	podman build -t mini-agent:latest -f backend/Dockerfile backend/
+	@echo "Building backend Docker image..."
+	@echo "正在构建后端 Docker 镜像..."
+	podman build -t mini-agent-backend:latest -f backend/Dockerfile backend/
 
 
-# Run Docker container
-# 运行 Docker 容器
+# Build frontend Docker image
+# 构建前端 Docker 镜像
+build-frontend:
+	@echo "Building frontend Docker image..."
+	@echo "正在构建前端 Docker 镜像..."
+	podman build -t mini-agent-frontend:latest -f frontend/Dockerfile frontend/
+
+
+# Run backend Docker container
+# 运行后端 Docker 容器
 run:
-	@echo "Running Docker container..."
-	@echo "正在运行 Docker 容器..."
-	podman run -d --name mini-agent -p 8000:8000 --env-file .env -e MODEL_BASE_URL=http://host.containers.internal:1234 mini-agent:latest
+	@echo "Running backend Docker container..."
+	@echo "正在运行后端 Docker 容器..."
+	podman network create mini-agent-net 2>/dev/null || true
+	podman run -d --name mini-agent-backend -p 8000:8000 --network mini-agent-net --env-file .env -e MODEL_BASE_URL=http://host.containers.internal:1234 mini-agent-backend:latest
 
 
-# Stop Docker container
-# 停止 Docker 容器
+# Run frontend Docker container
+# 运行前端 Docker 容器
+run-frontend:
+	@echo "Running frontend Docker container..."
+	@echo "正在运行前端 Docker 容器..."
+	podman network create mini-agent-net 2>/dev/null || true
+	podman run -d --name mini-agent-frontend -p 8001:80 --network mini-agent-net mini-agent-frontend:latest
+
+
+# Stop backend Docker container
+# 停止后端 Docker 容器
 stop:
-	@echo "Stopping Docker container..."
-	@echo "正在停止 Docker 容器..."
-	podman stop mini-agent 2>/dev/null || true
-	podman rm mini-agent 2>/dev/null || true
-	@echo "Docker container stopped."
-	@echo "Docker 容器已停止。"
+	@echo "Stopping backend Docker container..."
+	@echo "正在停止后端 Docker 容器..."
+	podman stop mini-agent-backend 2>/dev/null || true
+	podman rm mini-agent-backend 2>/dev/null || true
+	@echo "Backend Docker container stopped."
+	@echo "后端 Docker 容器已停止。"
+
+
+# Stop frontend Docker container
+# 停止前端 Docker 容器
+stop-frontend:
+	@echo "Stopping frontend Docker container..."
+	@echo "正在停止前端 Docker 容器..."
+	podman stop mini-agent-frontend 2>/dev/null || true
+	podman rm mini-agent-frontend 2>/dev/null || true
+	@echo "Frontend Docker container stopped."
+	@echo "前端 Docker 容器已停止。"
+
+
+# Stop all Docker containers
+# 停止所有 Docker 容器
+stop-all: stop-frontend stop
+	@echo "All Docker containers stopped."
+	@echo "所有 Docker 容器已停止。"
