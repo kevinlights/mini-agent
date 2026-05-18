@@ -11,6 +11,7 @@ from app.core.model import BaseModel as LLMModel
 from app.tools.tool import ToolRegistry
 from app.skills.skill import SkillRegistry
 from app.core.memory import MemorySystem
+from app.core.context import ContextManager, ContextConfig
 
 
 @dataclass
@@ -39,6 +40,7 @@ class AgentConfig:
     enable_tools: bool = True  # Whether to enable tool calling
     max_tool_calls: int = 5  # Maximum tool calls per response
     debug: bool = False  # Enable debug logging
+    context_config: Optional[ContextConfig] = None  # Context management config
 
 
 class Agent:
@@ -80,6 +82,7 @@ class Agent:
         self.tool_registry = tool_registry or ToolRegistry()
         self.skill_registry = skill_registry or SkillRegistry()
         self.memory_system = memory_system or MemorySystem()
+        self.context_manager = ContextManager(config=self.config.context_config)
 
         # Pass debug flag to model if it supports it
         if hasattr(self.model, "debug"):
@@ -134,6 +137,9 @@ class Agent:
         for msg in self.history:
             if msg.role != "system":
                 messages.append({"role": msg.role, "content": msg.content})
+
+        # Apply context optimization
+        messages = self.context_manager.build_optimized_context(messages)
 
         return messages
 
@@ -640,6 +646,7 @@ if __name__ == "__main__":
     from app.core.model import LMStudioModel
     from app.tools.builtins.file_tool import FileTool
     from app.skills.skill import SkillRegistry
+    from app.core.context import ContextConfig
 
     model = LMStudioModel(
         base_url="http://127.0.0.1:1234", model_name="qwen/qwen3-4b-2507"
@@ -648,12 +655,14 @@ if __name__ == "__main__":
     registry = ToolRegistry()
     registry.register(FileTool())
     skill_registry = SkillRegistry.load_from_markdown("app/skills")
+    context_config = ContextConfig(keep_recent_count=2)
 
     config = AgentConfig(
         name="test_agent",
         temperature=0.7,
         enable_tools=True,
         debug=True,
+        context_config=context_config,
     )
 
     agent = Agent(model=model, tool_registry=registry, config=config, skill_registry=skill_registry)
