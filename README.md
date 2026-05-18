@@ -31,6 +31,7 @@ mini-agent/
 │   │   ├── __init__.py
 │   │   ├── main.py           # FastAPI application entry point
 │   │   ├── config.py         # Application configuration
+│   │   ├── log.py            # Logging configuration
 │   │   │
 │   │   ├── core/             # Core agent functionality
 │   │   │   ├── __init__.py

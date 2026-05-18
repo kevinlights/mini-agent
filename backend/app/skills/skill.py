@@ -6,6 +6,8 @@ from typing import Dict, Any, List, Optional
 from dataclasses import dataclass, field
 from pathlib import Path
 import re
+from app.log import logger
+
 
 
 @dataclass
@@ -356,7 +358,7 @@ class SkillRegistry:
         )
 
         self.register(skill)
-        print(f"Loaded skill: {name}")
+        logger.debug(f"Loaded skill: {name}")
 
     def _parse_front_matter(self, content: str) -> Dict[str, Any]:
         """Parse YAML front matter from markdown.
