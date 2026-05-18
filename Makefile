@@ -119,7 +119,7 @@ build:
 run:
 	@echo "Running Docker container..."
 	@echo "正在运行 Docker 容器..."
-	podman run -d --name mini-agent -p 8000:8000 mini-agent:latest
+	podman run -d --name mini-agent -p 8000:8000 --env-file .env -e MODEL_BASE_URL=http://host.containers.internal:1234 mini-agent:latest
 
 
 # Stop Docker container
