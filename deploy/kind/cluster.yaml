@@ -43,14 +43,6 @@ nodes:
         hostPort: 8001
         protocol: TCP
         listenAddress: "0.0.0.0"
-    # Kubeadm configuration for Gateway API feature gates
-    # Gateway API 功能门的 kubeadm 配置
-    kubeadmConfigPatches:
-      - |
-        kind: InitConfiguration
-        nodeRegistration:
-          kubeletExtraArgs:
-            feature-gates: "AllAlpha=false,AllBeta=false"
 
 # Containerd configuration for private registries
 # 私有注册表的 containerd 配置
@@ -58,8 +50,3 @@ containerdConfigPatches:
   - |-
     [plugins."io.containerd.grpc.v1.cri".registry]
       config_path = "/etc/containerd/certs.d"
-
-# Runtime configuration for Gateway API support
-# Gateway API 支持的运行时配置
-featureGates:
-  GatewayAPI: true

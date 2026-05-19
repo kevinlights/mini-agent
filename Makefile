@@ -272,7 +272,7 @@ kind-undeploy:
 
 .PHONY: install-gateway
 install-gateway:
-	cd deploy/kind && wget https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.5.0/standard-install.yaml
-	kubectl apply -f standard-install.yaml
+# 	cd deploy/kind && wget https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.5.0/standard-install.yaml
+	cd deploy/kind && kubectl apply -f standard-install.yaml
 	@echo "Gateway API installed."
 	@echo "Gateway API 已安装。"
