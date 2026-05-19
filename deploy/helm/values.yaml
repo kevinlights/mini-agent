@@ -6,12 +6,13 @@
 backend:
   replicaCount: 1
   image:
-    repository: mini-agent-backend
+    repository: localhost/mini-agent-backend
     pullPolicy: IfNotPresent
     tag: "latest"
   service:
-    type: ClusterIP
+    type: NodePort
     port: 8000
+    nodePort: 30000
   resources:
     requests:
       cpu: 100m
@@ -37,7 +38,7 @@ backend:
 frontend:
   replicaCount: 1
   image:
-    repository: mini-agent-frontend
+    repository: localhost/mini-agent-frontend
     pullPolicy: IfNotPresent
     tag: "latest"
   service:

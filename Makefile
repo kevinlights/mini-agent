@@ -256,7 +256,7 @@ kind-load: build build-frontend
 kind-deploy:
 	@echo "Deploying to Kind cluster..."
 	@echo "正在部署到 Kind 集群..."
-	helm install mini-agent deploy/helm --namespace mini-agent --create-namespace
+	helm upgrade -i mini-agent deploy/helm --namespace mini-agent --create-namespace
 	@echo "Deployment complete."
 	@echo "部署完成。"
 
