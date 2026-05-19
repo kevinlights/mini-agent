@@ -52,12 +52,14 @@ frontend:
       cpu: 200m
       memory: 128Mi
 
-# Gateway API configuration
-# Gateway API 配置
+# Gateway API configuration (Istio ambient mode)
+# Gateway API 配置（Istio ambient 模式）
 gateway:
-  enabled: false
-  gatewayClassName: envoy
+  enabled: true
+  gatewayClassName: istio
   port: 80
+  hostnames:
+    - mini-agent.local
 
 # Node selector
 # 节点选择器

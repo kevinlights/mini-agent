@@ -270,6 +270,46 @@ kind-undeploy:
 	@echo "Undeployment complete."
 	@echo "取消部署完成。"
 
+
+# Start LoadBalancer for Kind cluster
+# 启动 Kind 集群的 LoadBalancer
+lb-start:
+	@echo "Starting LoadBalancer..."
+	@echo "正在启动 LoadBalancer..."
+	chmod +x deploy/kind/lb-manager.sh
+	deploy/kind/lb-manager.sh start
+
+
+# Stop LoadBalancer for Kind cluster
+# 停止 Kind 集群的 LoadBalancer
+lb-stop:
+	@echo "Stopping LoadBalancer..."
+	@echo "正在停止 LoadBalancer..."
+	chmod +x deploy/kind/lb-manager.sh
+	deploy/kind/lb-manager.sh stop
+
+
+# Show LoadBalancer status
+# 显示 LoadBalancer 状态
+lb-status:
+	chmod +x deploy/kind/lb-manager.sh
+	deploy/kind/lb-manager.sh status
+
+
+# Show LoadBalancer services
+# 显示 LoadBalancer 服务
+lb-services:
+	chmod +x deploy/kind/lb-manager.sh
+	deploy/kind/lb-manager.sh services
+
+
+# Full deployment with LoadBalancer
+# 完整部署（含 LoadBalancer）
+kind-full-deploy: kind-deploy lb-start lb-services
+	@echo ""
+	@echo "Full deployment complete!"
+	@echo "完整部署完成！"
+
 .PHONY: install-gateway
 install-gateway:
 # 	cd deploy/kind && wget https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.5.0/standard-install.yaml

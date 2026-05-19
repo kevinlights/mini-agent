@@ -5,6 +5,10 @@ metadata:
   name: {{ include "mini-agent.fullname" . }}
   labels:
     {{- include "mini-agent.labels" . | nindent 4 }}
+  {{- with .Values.gateway.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
 spec:
   gatewayClassName: {{ .Values.gateway.gatewayClassName }}
   listeners:
@@ -24,6 +28,10 @@ metadata:
 spec:
   parentRefs:
     - name: {{ include "mini-agent.fullname" . }}
+  hostnames:
+    {{- range .Values.gateway.hostnames }}
+    - {{ . | quote }}
+    {{- end }}
   rules:
     # Frontend route - catch all
     # 前端路由 - 捕获所有
