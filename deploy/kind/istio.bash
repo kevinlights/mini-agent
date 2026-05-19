@@ -58,3 +58,54 @@ kubectl get gateway
 kubectl port-forward svc/bookinfo-gateway-istio 8081:80
 # http://localhost:8081/productpage
 # If you refresh the page, you should see the display of the book ratings changing as the requests are distributed across the different versions of the reviews service.
+
+# hostnames:
+#   - bookinfo.klkl.ai
+# curl -H "Host: bookinfo.klkl.ai" --resolve bookinfo.klkl.ai:8081:127.0.0.1 -- http://bookinfo.klkl.ai:8081/productpage
+
+# You can enable all pods in a given namespace to be part of an ambient mesh by simply labeling the namespace:
+kubectl label namespace default istio.io/dataplane-mode=ambient
+
+curl -H "Host: bookinfo.klkl.ai" --resolve bookinfo.klkl.ai:8081:127.0.0.1 -- http://bookinfo.klkl.ai:8081/productpage
+
+# # https://docker.aityp.com/image/docker.io/4km3/dnsmasq:latest
+# podman run -d \
+#   --name my-dns \
+#   -p 5353:53/udp \
+#   -p 5353:53/tcp \
+#   swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/4km3/dnsmasq:latest \
+#   --address=/bookinfo.klkl.ai/127.0.0.1 \
+#   --log-queries
+
+podman network rm dns-net
+podman network create --subnet 10.89.1.0/24 dns-net
+
+# https://docker.aityp.com/image/docker.io/jpillora/dnsmasq:latest
+podman run --rm \
+    --name dnsmasq \
+    -p 5153:53/udp \
+    -p 5380:8080 \
+    --ip 10.89.1.100 \
+    --network dns-net \
+    swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/jpillora/dnsmasq:latest
+
+# http://localhost:5380
+# address=/bookinfo.klkl.ai/127.0.0.1
+
+# check port 5353
+# netstat -an | grep 5353
+
+dig @127.0.0.1 -p 5153 bookinfo.klkl.ai A
+
+# https://docker.aityp.com/image/docker.io/serjs/go-socks5-proxy:latest?platform=linux/arm64
+podman run --rm --name socks5-proxy \
+  -p 1080:1080 \
+  -e PROXY_PORT=1080 \
+  --network dns-net \
+  --dns 10.89.1.100 \
+  swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/serjs/go-socks5-proxy:latest-linuxarm64
+
+/Applications/Google\ Chrome.app/Contents/MacOS/Google\ Chrome \
+  --user-data-dir=/tmp/chrome-test-profile \
+  --proxy-server="socks5://127.0.0.1:1080" \
+  --host-resolver-rules="MAP * ~NOTFOUND, EXCLUDE 127.0.0.1"

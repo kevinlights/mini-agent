@@ -19,6 +19,8 @@ metadata:
 spec:
   parentRefs:
   - name: bookinfo-gateway
+  hostnames:
+  - bookinfo.klkl.ai
   rules:
   - matches:
     - path:
